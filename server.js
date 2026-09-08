@@ -7,33 +7,31 @@ app.use(express.static('public'));
 
 let players = {};
 let voting = {
-  isOpen: false,
+  isOpen: true,
   question: "今天午餐吃什麼？",
-  mode: "single", // single or multiple
+  mode: "single",
   options: [
-    { id: 1, text: "便當", votes: 0 },
-    { id: 2, text: "拉麵", votes: 0 },
-    { id: 3, text: "麥當勞", votes: 0 }
+    { id: 0, text: "便當", votes: 0 },
+    { id: 1, text: "拉麵", votes: 0 },
+    { id: 2, text: "麥當勞", votes: 0 }
   ],
   voters: {}
 };
 
 io.on('connection', (socket) => {
-  // 玩家加入
   socket.on('join', (data) => {
     players[socket.id] = {
       id: socket.id,
       name: data.name || '同事',
       isHost: data.isHost || false,
-      x: (Math.random() - 0.5) * 10,
-      z: (Math.random() - 0.5) * 10 + 5,
+      x: (Math.random() - 0.5) * 8,
+      z: (Math.random() - 0.5) * 6 + 4,
       color: Math.random() * 0xffffff
     };
     socket.emit('init', { id: socket.id, players, voting });
     socket.broadcast.emit('playerJoined', players[socket.id]);
   });
 
-  // 移動同步
   socket.on('move', (pos) => {
     if (players[socket.id]) {
       players[socket.id].x = pos.x;
@@ -42,19 +40,22 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 拍手事件
   socket.on('clap', () => {
     io.emit('playerClapped', { id: socket.id });
   });
 
-  // 攻擊事件 (廣播被揍者 ID)
-  socket.on('punch', (targetId) => {
-    if (targetId) {
-      io.emit('playerHit', { targetId, attackerId: socket.id });
+  // 廣播給所有人（包括自己以外的人）
+  socket.on('swing', () => {
+    socket.broadcast.emit('playerAttackSwing', { id: socket.id });
+  });
+
+  socket.on('punch', ({ targetId, knockbackX, knockbackZ }) => {
+    if (targetId && players[targetId]) {
+      io.emit('playerHit', { targetId, knockbackX, knockbackZ });
     }
   });
 
-  // 主持人更新投票題目
+  // 主持人改題
   socket.on('hostSetVote', (newVoting) => {
     if (players[socket.id]?.isHost) {
       voting = {
@@ -68,19 +69,27 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 投票提交
+  // 投票（保證型別一致性）
   socket.on('castVote', (selectedIds) => {
     if (!voting.isOpen) return;
-    voting.voters[socket.id] = selectedIds;
-    // 重計票數
-    voting.options.forEach(opt => opt.votes = 0);
+    
+    // 強制轉成純整數陣列
+    voting.voters[socket.id] = selectedIds.map(Number);
+
+    // 重算票數
+    voting.options.forEach(opt => {
+      opt.votes = 0;
+    });
+
     Object.values(voting.voters).forEach(ids => {
       ids.forEach(id => {
-        const opt = voting.options.find(o => o.id === id);
-        if (opt) opt.votes++;
+        const target = voting.options.find(o => Number(o.id) === Number(id));
+        if (target) target.votes += 1;
       });
     });
+
     io.emit('voteUpdated', voting);
+    socket.emit('voteSuccess');
   });
 
   socket.on('disconnect', () => {
@@ -91,4 +100,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+http.listen(PORT, () => console.log(`Server on port ${PORT}`));
