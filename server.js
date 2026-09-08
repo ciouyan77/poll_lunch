@@ -44,7 +44,6 @@ io.on('connection', (socket) => {
     io.emit('playerClapped', { id: socket.id });
   });
 
-  // 廣播給所有人（包括自己以外的人）
   socket.on('swing', () => {
     socket.broadcast.emit('playerAttackSwing', { id: socket.id });
   });
@@ -52,6 +51,14 @@ io.on('connection', (socket) => {
   socket.on('punch', ({ targetId, knockbackX, knockbackZ }) => {
     if (targetId && players[targetId]) {
       io.emit('playerHit', { targetId, knockbackX, knockbackZ });
+    }
+  });
+
+  // 聊天訊息廣播
+  socket.on('chat', (msg) => {
+    const text = String(msg || '').trim().slice(0, 40);
+    if (text) {
+      io.emit('playerChat', { id: socket.id, text });
     }
   });
 
@@ -69,18 +76,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 投票（保證型別一致性）
+  // 投票
   socket.on('castVote', (selectedIds) => {
     if (!voting.isOpen) return;
-    
-    // 強制轉成純整數陣列
     voting.voters[socket.id] = selectedIds.map(Number);
 
-    // 重算票數
-    voting.options.forEach(opt => {
-      opt.votes = 0;
-    });
-
+    voting.options.forEach(opt => { opt.votes = 0; });
     Object.values(voting.voters).forEach(ids => {
       ids.forEach(id => {
         const target = voting.options.find(o => Number(o.id) === Number(id));
